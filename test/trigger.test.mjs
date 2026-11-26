@@ -421,9 +421,9 @@ function fakeRuntime({ connectionFailures = 0 } = {}) {
 		const result = {
 			request,
 			signal,
-			emit(value) {
+			emit(...items) {
 				if (ended) return;
-				values.push(`${JSON.stringify(value)}\n`);
+				values.push(items.map((item) => `${JSON.stringify(item)}\n`).join(''));
 				settle();
 			},
 			close(error) {
@@ -528,6 +528,59 @@ test('retries normal and erroneous closures with capped backoff, resets on event
 	const active = fake.subscriptions.at(-1);
 	await stream.close();
 	assert.equal(active.signal.aborted, true);
+});
+
+for (const [event, item] of [['transaction', TRANSACTION], ['accountEntry', ACCOUNT_ENTRY]]) {
+	test(`retries an empty ${event} hash stream and completes after one matching event`, async () => {
+		const fake = fakeRuntime();
+		const hash = streamEventOutput(event, model(item)).hash;
+		const output = [];
+		const stream = await startAttoEventStream(
+			{}, event, { queryMode: 'hash', hash }, { nodeUrl: 'http://localhost' },
+			(result) => output.push(result.hash), fake.runtime,
+		);
+		try {
+			fake.subscriptions[0].close();
+			await delay(0);
+			fake.runNextTimer();
+			await delay(0);
+			const current = fake.subscriptions[1];
+			current.emit(item);
+			current.close();
+			await delay(0);
+			assert.deepEqual(output, [hash]);
+			assert.equal(fake.timers.length, 1);
+			assert.equal(current.signal.aborted, true);
+		} finally {
+			await stream.close();
+		}
+	});
+}
+
+test('a hash trigger completes only after delivering the requested entry', async () => {
+	const fake = fakeRuntime();
+	const output = [];
+	let attempts = 0;
+	const stream = await startAttoEventStream(
+		{}, 'accountEntry', { queryMode: 'hash', hash: OTHER_HASH }, { nodeUrl: 'http://localhost' },
+		(result) => {
+			if (++attempts === 1) throw new Error('delivery failed');
+			output.push(result.hash);
+		}, fake.runtime,
+	);
+	try {
+		fake.subscriptions[0].emit({ ...ACCOUNT_ENTRY, hash: HASH }, ACCOUNT_ENTRY);
+		await delay(0);
+		fake.runNextTimer();
+		await delay(0);
+		fake.subscriptions[1].emit({ ...ACCOUNT_ENTRY, hash: HASH }, ACCOUNT_ENTRY, ACCOUNT_ENTRY);
+		await delay(0);
+		assert.deepEqual(output, [OTHER_HASH]);
+		assert.equal(attempts, 2);
+		assert.equal(fake.timers.length, 1);
+	} finally {
+		await stream.close();
+	}
 });
 
 test('resumes an account-entry trigger after its last emitted height on reconnect', async () => {

@@ -51,6 +51,8 @@ Use **Representative > Change** with a signing wallet, Node Base URL, Worker Bas
 
 Use **Atto Trigger** for receivables, account updates, transactions, and account entries. Triggers require the Node Base URL. Filters can use the credentials-derived address, manual addresses, all supported stream items, or a hash where supported. Credential-derived filters also require wallet material. The trigger reconnects automatically when its Atto NDJSON stream closes.
 
+To run a workflow when one specific transaction or account entry appears, choose **Query Mode → Hash**. The trigger retries until it delivers the matching event, then stops listening for the rest of that activation. Reactivating the workflow starts a new subscription.
+
 ## Private Keys
 
 Private-key input must be a hex string parseable by Atto Commons `AttoPrivateKey.Companion.parse`. For generated keys in JavaScript, Atto Commons `toHex(privateKey.value)` produces the expected format.
