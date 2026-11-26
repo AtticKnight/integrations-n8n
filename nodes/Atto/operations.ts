@@ -944,6 +944,12 @@ export async function startAttoEventStream(
 						throw new Error(`Atto ${event} stream item must contain a JSON object`);
 					}
 					const output = streamEventOutput(event, parsed as IDataObject);
+					if (request.route === 'hash') {
+						if (output.hash !== request.hash) return;
+						onEvent(output);
+						controller.abort();
+						return;
+					}
 					if (
 						(event === 'transaction' || event === 'accountEntry') &&
 						(request.route === 'publicKey' || request.route === 'addresses')
@@ -968,6 +974,7 @@ export async function startAttoEventStream(
 					for (const line of lines) {
 						if (!line.trim()) continue;
 						emitLine(line);
+						if (controller.signal.aborted) return;
 					}
 				}
 				if (pending.trim() && !closed && streamGeneration === generation) {
@@ -979,7 +986,7 @@ export async function startAttoEventStream(
 				if (streamGeneration === generation) {
 					activeController = undefined;
 					activeConnection = undefined;
-					scheduleReconnect();
+					if (!controller.signal.aborted) scheduleReconnect();
 				}
 			}
 		})();
