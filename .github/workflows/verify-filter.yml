@@ -1,0 +1,52 @@
+name: Check the receivable floor
+on:
+  push:
+    branches: [verify/nonnegative-receivable-filter]
+permissions:
+  contents: read
+jobs:
+  patched:
+    name: Full package tests, lint and distribution checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run lint
+      - run: npm run validate:local
+  before:
+    name: Confirm the read and trigger cases fail before the fix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Run the same read-only cases against upstream's parser
+        run: |
+          git restore --source=1739c3ababbde9b4c6de10a13a729da4a593f570 -- nodes/Atto/operations.ts nodes/Atto/protocol.ts
+          npm run build
+          if node --test --test-reporter=spec --test-name-pattern='a receivable (read|trigger) accepts' test/unit.test.mjs > before.txt 2>&1; then
+            echo 'The original parser unexpectedly accepted both filters.'
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          lines = Path('before.txt').read_text()
+          assert 'fail 2' in lines, lines[-1600:]
+          assert 'Minimum Amount must be a positive Atto amount' in lines, lines[-1600:]
+          print('Both public operations rejected their explicit zero threshold on upstream.')
+          PY
